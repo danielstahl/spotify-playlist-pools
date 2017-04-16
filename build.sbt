@@ -13,3 +13,6 @@ libraryDependencies += "se.michaelthelin.spotify" % "spotify-web-api-java" % "1.
 libraryDependencies += "org.scalatest" % "scalatest_2.11" % "2.2.0" % "test"
 
 libraryDependencies += "ch.qos.logback" % "logback-classic" % "1.1.2"
+
+libraryDependencies +=  "org.scalaj" %% "scalaj-http" % "2.3.0"
+
