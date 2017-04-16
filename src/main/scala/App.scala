@@ -1,20 +1,38 @@
+import java.net.URLEncoder
+import java.nio.charset.StandardCharsets
+import java.util.Base64
+
 import com.wrapper.spotify.Api
 import com.wrapper.spotify.methods.PlaylistRequest
-import com.wrapper.spotify.models.{SimpleArtist, Playlist}
+import com.wrapper.spotify.methods.authentication.ClientCredentialsGrantRequest
+import com.wrapper.spotify.models.{ClientCredentials, Playlist, SimpleArtist}
 
 import collection.JavaConversions._
 import scala.util.Random
+import scalaj.http.Http
 
 /**
   * Main entry point
   */
 object App {
-  val OATH_FILE = "oauth.txt"
+  val SECRET_FILE = "secret.txt"
 
   def main(args: Array[String]): Unit = {
-    val oathToken = scala.io.Source.fromFile(OATH_FILE).getLines().next()
 
-    val api: Api = Api.builder().accessToken(oathToken).build()
+    val secret = scala.io.Source.fromFile(SECRET_FILE)
+      .getLines()
+      .next()
+      .split(":")
+
+    val api: Api = Api.builder()
+      .clientId(secret.head)
+      .clientSecret(secret(1))
+      .build()
+
+    val request: ClientCredentialsGrantRequest = api.clientCredentialsGrant().build()
+    val clientCredentials: ClientCredentials = request.get()
+
+    api.setAccessToken(clientCredentials.getAccessToken)
 
     val playlistUris =
       Seq("spotify:user:danielstahl:playlist:5umGwIaFKb0sgffuZTCybz")
@@ -25,9 +43,15 @@ object App {
 
     val indices = 1 to 50 map(i => random.nextInt(playlistUris.size))
 
-    val tracks = indices.map(trackPools(_).nextTrack()).distinct
+    val tracks = indices.
+      map(trackPools(_)
+        .nextTrack())
+      .filter(_.isDefined)
+      .map(_.get)
+      .distinct
 
     println(tracks.mkString(" "))
+
   }
 
   def shuffledPlaylistPool(playlistUri: String, api: Api): PlaylistPool = {
@@ -76,18 +100,20 @@ case class PlaylistPool(playlist: Playlist, tracks: List[String], shuffledTracks
 
   var artistFrequency: Map[String, Int] = Map()
 
-  def nextTrack(): String = {
+  def nextTrack(): Option[String] = {
     trackIterator = trackIterator.dropWhile(
       track =>
         trackArtists(track).exists(artist => artistFrequency.getOrElse(artist, 0) >= 2))
 
-    val track = trackIterator.next()
+    if(trackIterator.hasNext) {
+      val track = trackIterator.next()
 
-    trackArtists(track).foreach(artist => {
-      val artistFreq = artistFrequency.get(artist).map(_ + 1).getOrElse(1)
-      artistFrequency = artistFrequency + (artist -> artistFreq)
-    })
-    track
+      trackArtists(track).foreach(artist => {
+        val artistFreq = artistFrequency.get(artist).map(_ + 1).getOrElse(1)
+        artistFrequency = artistFrequency + (artist -> artistFreq)
+      })
+      Option(track)
+    } else Option.empty
   }
 
 
