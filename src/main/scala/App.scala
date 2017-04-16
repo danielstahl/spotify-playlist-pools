@@ -1,15 +1,12 @@
-import java.net.URLEncoder
-import java.nio.charset.StandardCharsets
-import java.util.Base64
 
 import com.wrapper.spotify.Api
-import com.wrapper.spotify.methods.PlaylistRequest
 import com.wrapper.spotify.methods.authentication.ClientCredentialsGrantRequest
 import com.wrapper.spotify.models.{ClientCredentials, Playlist, SimpleArtist}
 
 import collection.JavaConversions._
 import scala.util.Random
-import scalaj.http.Http
+
+import org.rogach.scallop._
 
 /**
   * Main entry point
@@ -18,7 +15,9 @@ object App {
   val SECRET_FILE = "secret.txt"
 
   def main(args: Array[String]): Unit = {
+    val conf = new Conf(args)
 
+    println(s"Building pool playlist with ${conf.playlists()} with ${conf.artistFrequency()} allowed artists")
     val secret = scala.io.Source.fromFile(SECRET_FILE)
       .getLines()
       .next()
@@ -34,10 +33,9 @@ object App {
 
     api.setAccessToken(clientCredentials.getAccessToken)
 
-    val playlistUris =
-      Seq("spotify:user:danielstahl:playlist:5umGwIaFKb0sgffuZTCybz")
+    val playlistUris = conf.playlists()
 
-    val trackPools = playlistUris.map(playlistUri => shuffledPlaylistPool(playlistUri, api))
+    val trackPools = playlistUris.map(playlistUri => shuffledPlaylistPool(playlistUri, api, conf.artistFrequency()))
 
     val random = new Random
 
@@ -54,14 +52,14 @@ object App {
 
   }
 
-  def shuffledPlaylistPool(playlistUri: String, api: Api): PlaylistPool = {
+  def shuffledPlaylistPool(playlistUri: String, api: Api, allowedArtistFrequency: Int): PlaylistPool = {
     val (user, id) = playlistUserAndId(playlistUri)
     val playlist = fetchPlaylist(user, id, api)
     val playlistTracks = getPlaylistTracks(playlist)
     val playlistTrackArtists = getPlaylistTrackArtists(playlist)
     val playlistArtists = getPlaylistArtists(playlist)
     val shuffledTracks = shuffleTracks(playlistTracks)
-    PlaylistPool(playlist, playlistTracks, shuffledTracks, playlistTrackArtists, playlistArtists)
+    PlaylistPool(playlist, playlistTracks, shuffledTracks, playlistTrackArtists, playlistArtists, allowedArtistFrequency)
   }
 
   def playlistUserAndId(playlistUri: String): (String, String) = {
@@ -95,15 +93,15 @@ object App {
     util.Random.shuffle(trackUris)
 }
 
-case class PlaylistPool(playlist: Playlist, tracks: List[String], shuffledTracks: List[String], trackArtists: Map[String, List[String]], artists: Map[String, SimpleArtist]) {
-  var trackIterator = shuffledTracks.iterator
+case class PlaylistPool(playlist: Playlist, tracks: List[String], shuffledTracks: List[String], trackArtists: Map[String, List[String]], artists: Map[String, SimpleArtist], allowedArtistFrequency: Int) {
+  private var trackIterator = shuffledTracks.iterator
 
   var artistFrequency: Map[String, Int] = Map()
 
   def nextTrack(): Option[String] = {
     trackIterator = trackIterator.dropWhile(
       track =>
-        trackArtists(track).exists(artist => artistFrequency.getOrElse(artist, 0) >= 2))
+        trackArtists(track).exists(artist => artistFrequency.getOrElse(artist, 0) >= allowedArtistFrequency))
 
     if(trackIterator.hasNext) {
       val track = trackIterator.next()
@@ -115,6 +113,11 @@ case class PlaylistPool(playlist: Playlist, tracks: List[String], shuffledTracks
       Option(track)
     } else Option.empty
   }
+}
 
+class Conf(arguments: Seq[String]) extends ScallopConf(arguments) {
+  val artistFrequency = opt[Int]( default = Some(5))
 
+  val playlists = trailArg[List[String]]()
+  verify()
 }
